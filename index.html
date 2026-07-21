@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canadian Food Price Index Dashboard</title>
+
+  <!--
+    Food Price Index Dashboard (SEG3125 - Assignment 5)
+    Order of this file: styles first, then the data file, then the app script.
+    Same no-build setup as my other projects - React + Babel straight from a
+    CDN, no npm, no bundler. foodPriceData.js just gets loaded as a normal
+    script before this one so its consts (MONTHS, CATEGORIES, ITEMS,
+    TRANSLATIONS) are already sitting there in memory when the app runs.
+  -->
+
+  <style>
+    /*
+       STYLES
+       Colours kept in simple variables like the other sites.
+     */
+    :root {
+      --bg: #faf8f2;          /* warm cream page background, feels like a produce aisle without being too literal */
+      --card-bg: #ffffff;
+      --text: #38352f;
+      --text-muted: #6f6a5f;
+      --border: #e7e2d5;
+      --accent: #3f6b3f;      /* forest green - used for the language toggle + the tallest bar / newest point */
+      --accent-soft: #eef2e8; /* pale version of the accent, used behind the intro paragraph */
+      --highlight: #a13d2b;   /* rust red - only used on the very last / most recent data point */
+    }
+
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    h1, h2 { font-family: Georgia, 'Times New Roman', serif; margin: 0; }
+
+    .dashboard { max-width: 1080px; margin: 0 auto; padding: 32px 24px 56px; }
+
+    /* ---- header ---- */
+    .header-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .dashboard-header h1 { font-size: 28px; line-height: 1.25; max-width: 640px; }
+    .subtitle { color: var(--text-muted); font-size: 15px; margin-top: 10px; max-width: 680px; }
+
+    /* ---- language toggle ---- */
+    /* Shows each language's OWN name (English / Română), not translated,
+       so someone can find their language even if the page loads in the
+       other one - this is the bit from the localization video about not
+       hiding the language switch behind a translated label. */
+    .lang-selector {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .lang-btn {
+      font: inherit;
+      font-size: 14px;
+      padding: 8px 16px;
+      background: var(--card-bg);
+      color: var(--text-muted);
+      border: none;
+      cursor: pointer;
+    }
+    .lang-btn + .lang-btn { border-left: 1px solid var(--border); }
+    .lang-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+    /* ---- intro paragraph ---- */
+    .intro-card {
+      background: var(--accent-soft);
+      border-radius: 10px;
+      padding: 18px 22px;
+      margin: 20px 0 28px;
+    }
+    .intro-card p { font-size: 14.5px; }
+
+    /* ---- the two chart cards ---- */
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 860px) {
+      .chart-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      box-shadow: 0 2px 10px rgba(56, 53, 47, 0.04);
+    }
+    .chart-card h2 { font-size: 19px; margin-bottom: 6px; }
+    .context-text { font-size: 13px; color: var(--text-muted); margin: 0 0 16px; }
+    .chart-caption { text-align: center; font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ---- controls above each chart ---- */
+    .controls-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 12px; }
+    .control { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-muted); }
+    .control select {
+      font: inherit;
+      font-size: 14px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      min-width: 180px;
+    }
+    .checkbox-control { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; }
+    .checkbox-control input { width: 15px; height: 15px; accent-color: var(--accent); }
+
+    /* ---- the hand-drawn SVG charts ---- */
+    /* No charting library here - both charts below are just <rect>,
+       <path>, <circle> and <text> elements I position myself with a bit
+       of scaling math, the same way the maze game measures the scroll
+       image by hand. Keeps this whole dashboard down to two files. */
+    .chart-svg { width: 100%; height: auto; overflow: visible; }
+    .gridline { stroke: #e7e2d8; stroke-width: 1; }
+    .axis-title { font-size: 11px; fill: var(--text-muted); }
+    .axis-value { font-size: 10px; fill: var(--text-muted); }
+
+    .bar { fill: #c9d6c2; }               /* muted sage green for most bars */
+    .bar-highlight { fill: var(--accent); } /* the tallest bar this month gets the strong green - Contrast */
+    .bar-value { font-size: 11px; fill: #3a3a34; }
+    .bar-label { font-size: 11px; fill: var(--text); }
+
+    .trend-line { stroke: var(--accent); stroke-width: 2.5; }
+    .dot { fill: var(--accent); }
+    .dot-highlight { fill: var(--highlight); stroke: #fff; stroke-width: 2; } /* the newest month stands out */
+    .line-label { font-size: 10px; fill: var(--text); }
+  </style>
+</head>
+
+<body>
+  <!-- React draws the whole dashboard inside this empty div -->
+  <div id="root"></div>
+
+  <!-- The data file - just plain consts, loaded before the app script
+       below so MONTHS / CATEGORIES / ITEMS / TRANSLATIONS already exist
+       by the time the app tries to use them. -->
+  <script src="foodPriceData.js"></script>
+
+  <!-- React, ReactDOM, and Babel (to write JSX straight in the browser,
+       same three scripts as the memory game) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+
+  <script type="text/babel">
+    // pull out the two hooks this page actually needs
+    const { useState, useMemo } = React;
+
+    // ---------------------------------------------------------
+    // SCALE HELPER
+    // Turns a data value into a pixel position between rangeMin
+    // and rangeMax. This is the one bit of "chart library" math
+    // both charts below share - everything else is just plain SVG.
+    // ---------------------------------------------------------
+    function scale(value, domainMin, domainMax, rangeMin, rangeMax) {
+      if (domainMax === domainMin) return rangeMin;
+      const ratio = (value - domainMin) / (domainMax - domainMin);
+      return rangeMin + ratio * (rangeMax - rangeMin);
+    }
+
+    // ---------------------------------------------------------
+    // LANGUAGE TOGGLE
+    // A simple controlled component - App owns the language, this
+    // just shows two buttons and reports back which one was clicked.
+    // ---------------------------------------------------------
+    function LanguageSelector({ lang, onChange }) {
+      return (
+        <div className="lang-selector" role="group" aria-label="Language selection / Selectarea limbii">
+          <button
+            type="button"
+            className={"lang-btn" + (lang === "en" ? " active" : "")}
+            aria-pressed={lang === "en"}
+            onClick={function () { onChange("en"); }}
+          >
+            English
+          </button>
+          <button
+            type="button"
+            className={"lang-btn" + (lang === "ro" ? " active" : "")}
+            aria-pressed={lang === "ro"}
+            onClick={function () { onChange("ro"); }}
+          >
+            Română
+          </button>
+        </div>
+      );
+    }
+
+    // ---------------------------------------------------------
+    // BAR CHART - compares the 7 categories for ONE selected month.
+    // ---------------------------------------------------------
+    function CategoryBarChart({ lang, month, sortDesc, numberFormat, t }) {
+      // Grab just {label, value} for the month that's currently picked.
+      let data = CATEGORIES.map(function (c) {
+        return { key: c.key, label: c[lang], value: c.values[month] };
+      });
+
+      if (sortDesc) {
+        data = data.slice().sort(function (a, b) { return b.value - a.value; });
+      }
+
+      const maxValue = Math.max.apply(null, data.map(function (d) { return d.value; }));
+
+      // ---- geometry (all figured out by hand, no library) ----
+      const width = 560;
+      const height = 320;
+      const paddingLeft = 46;
+      const paddingBottom = 74;
+      const paddingTop = 26;
+      const chartWidth = width - paddingLeft - 12;
+      const chartHeight = height - paddingTop - paddingBottom;
+      const barSlot = chartWidth / data.length;
+      const barWidth = barSlot * 0.6;
+      const domainMax = maxValue * 1.15; // a bit of headroom above the tallest bar
+
+      return (
+        <svg viewBox={"0 0 " + width + " " + height} className="chart-svg" role="img" aria-label={t.barCardTitle}>
+          {/* Just 4 gridlines behind the bars - the "clutter-free" part of
+              the 3Cs. Enough to read the scale without turning this into
+              a full grid the eye has to fight through. */}
+          {[0, 0.5, 1].map(function (fraction) {
+            const y = paddingTop + chartHeight * (1 - fraction);
+            return (
+              <g key={fraction}>
+                <line x1={paddingLeft} x2={width - 12} y1={y} y2={y} className="gridline" />
+                <text x={paddingLeft - 6} y={y + 3} textAnchor="end" className="axis-value">
+                  {numberFormat.format(domainMax * fraction)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* y-axis title, rotated so it reads bottom-to-top */}
+          <text
+            x={14}
+            y={paddingTop + chartHeight / 2}
+            textAnchor="middle"
+            className="axis-title"
+            transform={"rotate(-90 14 " + (paddingTop + chartHeight / 2) + ")"}
+          >
+            {t.barAxisIndex}
+          </text>
+
+          {/* x-axis title, centred under the rotated category labels */}
+          <text x={paddingLeft + chartWidth / 2} y={height - 6} textAnchor="middle" className="axis-title">
+            {t.barAxisCategory}
+          </text>
+
+          {data.map(function (d, index) {
+            const barHeight = (d.value / domainMax) * chartHeight;
+            const x = paddingLeft + index * barSlot + (barSlot - barWidth) / 2;
+            const y = paddingTop + chartHeight - barHeight;
+            const isMax = d.value === maxValue;
+            const labelX = x + barWidth / 2;
+            const labelY = paddingTop + chartHeight + 14;
+
+            return (
+              <g key={d.key}>
+                {/* the bar - strong green for the highest category this
+                    month, muted sage for the rest. This is the "Contrast"
+                    part of the 3Cs: the eye should land on the tallest
+                    one first, without me having to say so in words. */}
+                <rect x={x} y={y} width={barWidth} height={barHeight} rx="4"
+                      className={isMax ? "bar bar-highlight" : "bar"}>
+                  <title>{d.label + ": " + t.tooltipIndex + " " + numberFormat.format(d.value)}</title>
+                </rect>
+
+                {/* the number printed right above its bar, so nobody has
+                    to trace a line back over to the y-axis to read it */}
+                <text x={labelX} y={y - 6} textAnchor="middle" className="bar-value">
+                  {numberFormat.format(d.value)}
+                </text>
+
+                {/* category name, tilted so the longer Romanian labels
+                    still fit without overlapping their neighbours */}
+                <text
+                  x={labelX} y={labelY} textAnchor="end" className="bar-label"
+                  transform={"rotate(-30 " + labelX + " " + labelY + ")"}
+                >
+                  {d.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      );
+    }
+
+    // ---------------------------------------------------------
+    // LINE CHART - tracks ONE selected item across all 13 months.
+    // ---------------------------------------------------------
+    function TrendLineChart({ lang, item, numberFormat, t }) {
+      const points = MONTHS.map(function (m) {
+        return { key: m.key, label: m[lang], value: item.values[m.key] };
+      });
+
+      const values = points.map(function (p) { return p.value; });
+      const minValue = Math.min.apply(null, values);
+      const maxValue = Math.max.apply(null, values);
+      const span = maxValue - minValue || 1;
+      // a little breathing room above/below so the line never touches
+      // the very top or bottom edge of the chart
+      const domainMin = minValue - span * 0.15;
+      const domainMax = maxValue + span * 0.15;
+
+      const width = 560;
+      const height = 320;
+      const paddingLeft = 46;
+      const paddingBottom = 58;
+      const paddingTop = 20;
+      const chartWidth = width - paddingLeft - 12;
+      const chartHeight = height - paddingTop - paddingBottom;
+
+      const coords = points.map(function (p, index) {
+        const x = paddingLeft + (index / (points.length - 1)) * chartWidth;
+        const y = scale(p.value, domainMin, domainMax, paddingTop + chartHeight, paddingTop);
+        return { x: x, y: y, label: p.label, value: p.value };
+      });
+
+      const linePath = coords
+        .map(function (c, index) {
+          return (index === 0 ? "M " : "L ") + c.x.toFixed(1) + " " + c.y.toFixed(1);
+        })
+        .join(" ");
+
+      return (
+        <svg viewBox={"0 0 " + width + " " + height} className="chart-svg" role="img" aria-label={t.lineCardTitle}>
+          {[0, 0.5, 1].map(function (fraction) {
+            const y = paddingTop + chartHeight * (1 - fraction);
+            const value = domainMin + (domainMax - domainMin) * fraction;
+            return (
+              <g key={fraction}>
+                <line x1={paddingLeft} x2={width - 12} y1={y} y2={y} className="gridline" />
+                <text x={paddingLeft - 6} y={y + 3} textAnchor="end" className="axis-value">
+                  {numberFormat.format(value)}
+                </text>
+              </g>
+            );
+          })}
+
+          <text
+            x={14}
+            y={paddingTop + chartHeight / 2}
+            textAnchor="middle"
+            className="axis-title"
+            transform={"rotate(-90 14 " + (paddingTop + chartHeight / 2) + ")"}
+          >
+            {t.lineAxisIndex}
+          </text>
+          <text x={paddingLeft + chartWidth / 2} y={height - 6} textAnchor="middle" className="axis-title">
+            {t.lineAxisMonth}
+          </text>
+
+          {/* the trend line itself - one path, no library needed to draw it */}
+          <path d={linePath} className="trend-line" fill="none" />
+
+          {coords.map(function (c, index) {
+            const isLast = index === coords.length - 1;
+            // Only label every other month - putting all 13 rotated
+            // labels on screen at once was cluttered, so this keeps
+            // the x-axis readable (clutter-free again).
+            const showLabel = index % 2 === 0;
+            const labelY = paddingTop + chartHeight + 14;
+
+            return (
+              <g key={c.label}>
+                <circle cx={c.x} cy={c.y} r={isLast ? 6 : 3} className={isLast ? "dot dot-highlight" : "dot"}>
+                  <title>{c.label + ": " + t.tooltipIndex + " " + numberFormat.format(c.value)}</title>
+                </circle>
+                {showLabel && (
+                  <text
+                    x={c.x} y={labelY} textAnchor="end" className="line-label"
+                    transform={"rotate(-30 " + c.x + " " + labelY + ")"}
+                  >
+                    {c.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      );
+    }
+
+    // ---------------------------------------------------------
+    // THE WHOLE APP
+    // Same pattern as the maze game: App is the only component that
+    // holds state, everything else is just handed props and draws
+    // whatever it's given.
+    // ---------------------------------------------------------
+    function App() {
+      const [lang, setLang] = useState("en");
+      const [month, setMonth] = useState(MONTHS[MONTHS.length - 1].key); // default to the newest month
+      const [sortDesc, setSortDesc] = useState(false);
+      const [itemKey, setItemKey] = useState("tomatoes"); // same starting item as the assignment's own example
+
+      const t = TRANSLATIONS[lang];
+      const selectedItem = ITEMS.find(function (i) { return i.key === itemKey; });
+
+      // Romanian uses a comma for decimals, English/Canadian uses a
+      // period - Intl.NumberFormat is a normal browser API, so this
+      // works fine without any build tools.
+      const numberFormat = useMemo(function () {
+        return new Intl.NumberFormat(lang === "ro" ? "ro-RO" : "en-CA", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        });
+      }, [lang]);
+
+      const monthLabel = MONTHS.find(function (m) { return m.key === month; })[lang];
+
+      return (
+        <div className="dashboard" lang={lang}>
+          <header className="dashboard-header">
+            <div className="header-row">
+              <h1>{t.siteTitle}</h1>
+              <LanguageSelector lang={lang} onChange={setLang} />
+            </div>
+            <p className="subtitle">{t.siteSubtitle}</p>
+          </header>
+
+          <section className="intro-card">
+            <p>{t.introText}</p>
+          </section>
+
+          <main className="chart-grid">
+            <section className="chart-card">
+              <h2>{t.barCardTitle}</h2>
+              <p className="context-text">{t.barContext}</p>
+
+              <div className="controls-row">
+                <label className="control">
+                  <span>{t.barMonthLabel}</span>
+                  <select value={month} onChange={function (e) { setMonth(e.target.value); }}>
+                    {MONTHS.map(function (m) {
+                      return <option key={m.key} value={m.key}>{m[lang]}</option>;
+                    })}
+                  </select>
+                </label>
+
+                <label className="control checkbox-control">
+                  <input
+                    type="checkbox"
+                    checked={sortDesc}
+                    onChange={function (e) { setSortDesc(e.target.checked); }}
+                  />
+                  <span>{t.barSortLabel}</span>
+                </label>
+              </div>
+
+              <CategoryBarChart lang={lang} month={month} sortDesc={sortDesc} numberFormat={numberFormat} t={t} />
+              <p className="chart-caption">{monthLabel}</p>
+            </section>
+
+            <section className="chart-card">
+              <h2>{t.lineCardTitle}</h2>
+              <p className="context-text">{t.lineContext}</p>
+
+              <div className="controls-row">
+                <label className="control">
+                  <span>{t.lineItemLabel}</span>
+                  <select value={itemKey} onChange={function (e) { setItemKey(e.target.value); }}>
+                    {ITEMS.map(function (i) {
+                      return <option key={i.key} value={i.key}>{i[lang]}</option>;
+                    })}
+                  </select>
+                </label>
+              </div>
+
+              <TrendLineChart lang={lang} item={selectedItem} numberFormat={numberFormat} t={t} />
+            </section>
+          </main>
+        </div>
+      );
+    }
+
+    // Draw the dashboard into the empty <div id="root"> from above.
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
